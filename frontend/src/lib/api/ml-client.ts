@@ -1,0 +1,134 @@
+import type {
+  AiApiResponse,
+  AiHealthStatus,
+  OrderRiskRequest,
+  RiskPredictionResult,
+  ModelInfo,
+  ForecastResult,
+  TrainingMetrics,
+  DataFormatInfo,
+  RetrainingResult,
+  InsightsSummary,
+  RiskExplanation,
+  RecommendationsResult,
+} from "@/types/ai";
+
+const resolveMlBaseUrl = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_ML_SERVICE_URL?.trim();
+  const defaultPort = "8001";
+
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "localhost";
+    const fallback = `${protocol}//${hostname}:${defaultPort}`;
+
+    if (!envUrl) return fallback;
+
+    try {
+      const parsed = new URL(envUrl);
+      const isLocalEnvHost = ["localhost", "127.0.0.1"].includes(parsed.hostname);
+      const isLocalRuntimeHost = ["localhost", "127.0.0.1"].includes(hostname);
+
+      // Keep host aligned with current page host to avoid localhost/127 CORS mismatches.
+      if (isLocalEnvHost && isLocalRuntimeHost && parsed.hostname !== hostname) {
+        parsed.hostname = hostname;
+      }
+
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      return fallback;
+    }
+  }
+
+  return envUrl?.replace(/\/$/, "") || `http://localhost:${defaultPort}`;
+};
+
+const ML_BASE_URL = resolveMlBaseUrl();
+
+async function fetchMl<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const url = `${ML_BASE_URL}${endpoint}`;
+  const headers: Record<string, string> = {};
+  if (options?.body && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  let res: globalThis.Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: { ...headers, ...options?.headers },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to fetch";
+    throw new Error(`ML service unreachable at ${ML_BASE_URL}. ${message}`);
+  }
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(error.detail || `API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+export const mlApi = {
+  getHealth: () => fetchMl<AiHealthStatus>("/api/health"),
+
+  predictOrderRisk: (data: OrderRiskRequest) =>
+    fetchMl<AiApiResponse<RiskPredictionResult>>("/api/predict/order-risk", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getModelInfo: () =>
+    fetchMl<AiApiResponse<ModelInfo>>("/api/predict/model-info"),
+
+  getForecast: (category: string, periods: number, startDate?: string) => {
+    const params = new URLSearchParams({
+      category,
+      periods: String(periods),
+    });
+    if (startDate) {
+      params.set("start_date", startDate);
+    }
+    return fetchMl<AiApiResponse<ForecastResult>>(
+      `/api/forecast/demand?${params.toString()}`
+    );
+  },
+
+  getForecastCategories: () =>
+    fetchMl<AiApiResponse<{ categories: string[] }>>("/api/forecast/categories"),
+
+  getMetrics: () =>
+    fetchMl<AiApiResponse<TrainingMetrics>>("/api/retrain/metrics"),
+
+  getDataFormat: () =>
+    fetchMl<AiApiResponse<DataFormatInfo>>("/api/retrain/data-format"),
+
+  uploadAndTrain: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return fetchMl<AiApiResponse<RetrainingResult>>(
+      "/api/retrain/upload-and-train",
+      { method: "POST", body: formData, headers: {} }
+    );
+  },
+
+  retrainFromDatabase: () =>
+    fetchMl<AiApiResponse<RetrainingResult>>("/api/retrain/from-database", {
+      method: "POST",
+    }),
+
+  getInsightsSummary: (lang: string = "en", period: string = "week") =>
+    fetchMl<AiApiResponse<InsightsSummary>>(
+      `/api/insights/summary?lang=${lang}&period=${period}`
+    ),
+
+  explainOrderRisk: (score: number, reasons: string[], lang: string = "en") =>
+    fetchMl<AiApiResponse<RiskExplanation>>(
+      `/api/insights/order-explanation?score=${score}&reasons=${encodeURIComponent(reasons.join(","))}&lang=${lang}`
+    ),
+
+  getRecommendations: (context: string, lang: string = "en") =>
+    fetchMl<AiApiResponse<RecommendationsResult>>(
+      `/api/insights/recommendations?context=${encodeURIComponent(context)}&lang=${lang}`
+    ),
+};
