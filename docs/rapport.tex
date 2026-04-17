@@ -1167,61 +1167,120 @@ Insights NL & G\'{e}n\'{e}ratif & Google Gemini & Multilingue (AR/FR/EN) \\
 % ══════════════════════════════════════════════════════════════
 \section{S\'{e}curit\'{e} et protection des donn\'{e}es}
 
-La s\'{e}curit\'{e} d'un CRM manipulant des donn\'{e}es clients sensibles (coordonn\'{e}es, historique d'achats, scores de risque) est primordiale. Plusieurs m\'{e}canismes de protection ont \'{e}t\'{e} impl\'{e}ment\'{e}s \`{a} diff\'{e}rents niveaux de l'architecture.
+La s\'{e}curit\'{e} d'un CRM manipulant des donn\'{e}es clients sensibles (coordonn\'{e}es, historique d'achats, scores de risque) est primordiale. Cette section fusionne le rapport principal avec le volet cybers\'{e}curit\'{e} r\'{e}alis\'{e} par un membre de l'\'{e}quipe, en gardant une pr\'{e}sentation synth\'{e}tique orient\'{e}e impl\'{e}mentation.
 
-\subsection{Authentification et autorisation}
+\subsection{Volet cybers\'{e}curit\'{e} (contribution de l'\'{e}quipe)}
+
+Le travail d'audit s\'{e}curit\'{e} a \'{e}t\'{e} men\'{e} dans le cadre du module cybers\'{e}curit\'{e}, puis consolid\'{e} dans ce rapport de stage. L'objectif n'\'{e}tait pas uniquement de lister des failles, mais de les reproduire, les corriger, puis re-v\'{e}rifier directement dans le code source et sur les endpoints expos\'{e}s.
+
+\subsection{M\'{e}thodologie d'audit}
+
+\begin{enumerate}
+  \item \textbf{Revue statique du code} (backend PHP, frontend Next.js, microservice ML FastAPI).
+  \item \textbf{Tests dynamiques via Burp Suite} (interception, manipulation des requ\^{e}tes, contr\^{o}le d'acc\`{e}s).
+  \item \textbf{Tests d'injection avec sqlmap} sur les endpoints pagin\'{e}s.
+  \item \textbf{Tests manuels IDOR} sur les ressources multi-tenant (products, orders, deliveries, returns).
+  \item \textbf{Revue de configuration} (.env.example, secrets, mode debug, CORS, upload).
+\end{enumerate}
+
+\subsection{Architecture de s\'{e}curisation impl\'{e}ment\'{e}e}
 
 \begin{table}[H]
 \centering
-\caption{M\'{e}canismes d'authentification par couche}
+\caption{M\'{e}canismes d'authentification et d'autorisation par couche}
 \label{tab:security_auth}
-\begin{tabularx}{\textwidth}{l l X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Couche} & \textbf{M\'{e}canisme} & \textbf{Impl\'{e}mentation} \\
 \midrule
-Backend PHP & JWT + RBAC & Tokens sign\'{e}s avec 6 r\^{o}les (super\_admin, store\_admin, call\_agent, etc.). Expiration configurable. \\
-Service ML & Cl\'{e} API & Header \texttt{X-API-Key} ou token Bearer. Cl\'{e} configurable dans les variables d'environnement. \\
-Frontend & AuthGuard & V\'{e}rification du token \`{a} chaque navigation. Redirection automatique vers la page de connexion si expir\'{e}. \\
+Backend PHP & JWT + RBAC + Tenant scoping & Token JWT (avec \texttt{store\_id}), contr\^{o}le par r\^{o}le, filtrage syst\'{e}matique par tenant. \\
+Service ML & Cl\'{e} API & En-t\^{e}te \texttt{X-API-Key} ou token Bearer; validation via \texttt{verify\_api\_key}. \\
+Frontend & AuthGuard & V\'{e}rification de session avant rendu des pages dashboard. \\
 \bottomrule
 \end{tabularx}
 \end{table}
-
-\subsection{Protection contre les attaques courantes}
 
 \begin{table}[H]
 \centering
-\caption{Protections impl\'{e}ment\'{e}es contre les attaques web}
+\caption{Protections techniques contre les attaques applicatives}
 \label{tab:security_protections}
-\begin{tabularx}{\textwidth}{l l X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}X}
 \toprule
 \textbf{Attaque} & \textbf{Protection} & \textbf{D\'{e}tail} \\
 \midrule
-Injection SQL & Requ\^{e}tes pr\'{e}par\'{e}es & Tous les param\`{e}tres utilisateur (y compris LIMIT/OFFSET) sont param\'{e}tr\'{e}s via PDO. \\
-CSRF & Header X-Requested-With & Le middleware v\'{e}rifie la pr\'{e}sence de \texttt{X-Requested-With: XMLHttpRequest} pour les requ\^{e}tes \'{e}tat-modifiantes. \\
-Brute force & Rate limiting & Limite de 5 requ\^{e}tes/min sur les endpoints d'authentification, 60/min pour les autres routes. \\
-XSS & Sanitisation React & Le frontend React \'{e}chappe automatiquement les variables dans le JSX. \\
-Upload malveillant & Validation stricte & Limite de 50 Mo, v\'{e}rification du type MIME, protection contre path traversal (blocage de \texttt{..}). \\
+Injection SQL & Requ\^{e}tes pr\'{e}par\'{e}es & Clauses sensibles et pagination param\'{e}tr\'{e}es via PDO. \\
+CSRF & Header applicatif + middleware & Validation du header \texttt{X-Requested-With} sur les requ\^{e}tes d'\'{e}tat. \\
+Brute force / flooding & Rate limiting & 5 req/min sur endpoints d'auth, 60 req/min sur le reste des routes API. \\
+IDOR & Isolation multi-tenant & Requ\^{e}tes contraintes par le couple \texttt{id/store\_id}. \\
+Upload malveillant & Validation stricte & Nom filtr\'{e}, contr\^{o}le MIME, taille max 50 Mo, blocage path traversal. \\
+Erreurs frontend & Recovery + boundary & Reprise des erreurs de chunks + boundary React globale. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Bonnes pratiques de d\'{e}ploiement}
+\subsection{Synth\`{e}se des vuln\'{e}rabilit\'{e}s corrig\'{e}es}
 
-Pour un d\'{e}ploiement en production, plusieurs recommandations ont \'{e}t\'{e} document\'{e}es :
+\begin{table}[H]
+\centering
+\caption{Synth\`{e}se de s\'{e}v\'{e}rit\'{e} des corrections appliqu\'{e}es}
+\label{tab:security_severity}
+\begin{tabular}{lcc}
+\toprule
+\textbf{S\'{e}v\'{e}rit\'{e}} & \textbf{Nombre} & \textbf{Statut} \\
+\midrule
+Critique & 5 & Corrig\'{e} \\
+\'{E}lev\'{e}e & 3 & Corrig\'{e} \\
+Moyenne & 2 & Corrig\'{e} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Points de correction int\'{e}gr\'{e}s dans le projet}
+\label{tab:security_fixes_summary}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.12\textwidth} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{ID} & \textbf{Probl\`{e}me} & \textbf{Correction appliqu\'{e}e} \\
+\midrule
+V-01 & Secret expos\'{e} & Suppression des secrets versionn\'{e}s; templates \texttt{.env.example} avec placeholders. \\
+V-02 & Endpoints ML non prot\'{e}g\'{e}s & V\'{e}rification API key appliqu\'{e}e sur l'ensemble des routes ML. \\
+V-03 & SQL injection pagination & Pagination s\'{e}curis\'{e}e via param\`{e}tres pr\'{e}par\'{e}s. \\
+V-04/V-10 & Contr\^{o}le d'acc\`{e}s et IDOR & AuthGuard + scoping tenant (\texttt{store\_id}) dans middleware/services/repositories. \\
+V-05 & CSRF & Middleware CSRF + header automatique c\^{o}t\'{e} client Axios. \\
+V-06 & Debug en production & Template de production avec debug d\'{e}sactiv\'{e}. \\
+V-07 & Absence de limitation de d\'{e}bit & \texttt{RateLimitMiddleware} appliqu\'{e} aux groupes API. \\
+V-08 & Crash frontend non g\'{e}r\'{e} & Boundary React + reprise des erreurs de chunks. \\
+V-09 & Upload non restreint & Validation extension, type MIME, taille et nom de fichier. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{V\'{e}rification du code source (17/04/2026)}
+
+Une relecture cibl\'{e}e du code a \'{e}t\'{e} effectu\'{e}e apr\`{e}s int\'{e}gration des correctifs :
 
 \begin{itemize}
-  \item \textbf{Variables d'environnement} : Les cl\'{e}s API (Gemini, ML\_API\_KEY), secrets JWT et identifiants de base de donn\'{e}es ne sont jamais commit\'{e}s dans le code source. Seuls des fichiers \texttt{.env.example} avec des placeholders sont fournis.
-  
-  \item \textbf{Mode debug d\'{e}sactiv\'{e}} : \texttt{APP\_DEBUG=false} emp\^{e}che l'affichage des traces d'erreur en production.
-  
-  \item \textbf{HTTPS obligatoire} : Le frontend et les API doivent \^{e}tre servis via HTTPS en production pour prot\'{e}ger les tokens en transit.
-  
-  \item \textbf{Isolation multi-tenant} : Chaque requ\^{e}te est filtr\'{e}e par \texttt{store\_id} pour garantir qu'un utilisateur ne peut acc\'{e}der qu'aux donn\'{e}es de son propre magasin.
-  
-  \item \textbf{Mot de passe super admin} : Le mot de passe par d\'{e}faut doit \^{e}tre chang\'{e} imm\'{e}diatement apr\`{e}s la premi\`{e}re connexion.
+  \item Les repositories critiques utilisent des requ\^{e}tes param\'{e}tr\'{e}es, y compris pour la pagination.
+  \item Le scoping multi-tenant est pr\'{e}sent de bout en bout : middleware, services et repositories.
+  \item Les routes prot\'{e}g\'{e}es, admin et storefront passent d\'{e}sormais par un rate limiting.
+  \item Les routes ML sont prot\'{e}g\'{e}es par cl\'{e} API d\`{e}s que la variable \texttt{ML\_API\_KEY} est d\'{e}finie.
+  \item Aucune cl\'{e} Gemini n'est retrouv\'{e}e dans les fichiers versionn\'{e}s du d\'{e}p\^{o}t.
 \end{itemize}
 
-Ces mesures constituent un socle de s\'{e}curit\'{e} solide, m\^{e}me si un audit de s\'{e}curit\'{e} professionnel reste recommand\'{e} avant un d\'{e}ploiement \`{a} grande \'{e}chelle.
+\subsection{Bonnes pratiques de d\'{e}ploiement}
+
+Pour un d\'{e}ploiement en production :
+
+\begin{itemize}
+  \item \textbf{Secrets et rotation} : utiliser des secrets forts (JWT, ML API key, Gemini) et planifier leur rotation.
+  \item \textbf{Configuration s\'{e}curis\'{e}e} : conserver un mode production avec debug d\'{e}sactiv\'{e}.
+  \item \textbf{Transport s\'{e}curis\'{e}} : forcer HTTPS pour frontend et API.
+  \item \textbf{Isolation tenant} : ne jamais accepter le store id du body sans validation du contexte JWT.
+  \item \textbf{Observabilit\'{e}} : journaliser les tentatives de login, rejets CSRF et d\'{e}passements de rate limit.
+\end{itemize}
+
+Ce dispositif constitue un socle de s\'{e}curit\'{e} solide pour un d\'{e}ploiement pilote, avec comme suite logique un test d'intrusion externe ind\'{e}pendant avant passage \`{a} grande \'{e}chelle.
 
 
 % ══════════════════════════════════════════════════════════════

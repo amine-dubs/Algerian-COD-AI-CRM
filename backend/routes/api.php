@@ -55,7 +55,7 @@ $router->group('/api/v1/auth', [new RateLimitMiddleware()], function ($router) {
 // Protected Routes (Authenticated + Tenant-scoped + CSRF)
 // ═══════════════════════════════════════════════════════════
 
-$router->group('/api/v1', [AuthMiddleware::class, TenantMiddleware::class, CsrfMiddleware::class], function ($router) {
+$router->group('/api/v1', [new RateLimitMiddleware(), AuthMiddleware::class, TenantMiddleware::class, CsrfMiddleware::class], function ($router) {
 
     // ── Auth (Protected) ──────────────────────────────────
     $router->get('/auth/me',       [AuthController::class, 'me']);
@@ -157,7 +157,7 @@ $router->group('/api/v1', [AuthMiddleware::class, TenantMiddleware::class, CsrfM
 // Super Admin Routes (Platform-level, no tenant scope)
 // ═══════════════════════════════════════════════════════════
 
-$router->group('/api/v1/admin', [], function ($router) {
+$router->group('/api/v1/admin', [new RateLimitMiddleware()], function ($router) {
     // Public — super admin login
     $router->post('/login', [AdminController::class, 'login']);
 
@@ -173,7 +173,7 @@ $router->group('/api/v1/admin', [], function ($router) {
 // Storefront Routes (Public — no auth needed)
 // ═══════════════════════════════════════════════════════════
 
-$router->group('/api/v1/storefront', [], function ($router) {
+$router->group('/api/v1/storefront', [new RateLimitMiddleware()], function ($router) {
     $router->get('/{slug}',           [StorefrontController::class, 'storeInfo']);
     $router->get('/{slug}/products',  [StorefrontController::class, 'products']);
     $router->post('/{slug}/orders',   [StorefrontController::class, 'placeOrder']);
